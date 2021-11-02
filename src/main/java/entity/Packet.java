@@ -9,10 +9,15 @@ package entity;
 public class Packet {
 
     /**
-     * packet length
+     * Packet length
+     *
+     * generated from the distribution
      */
     private double length;
 
+    /**
+     * Arrival time of this packet
+     */
     private double arriveClock;
 
     public Packet(double length, double arriveClock) {
