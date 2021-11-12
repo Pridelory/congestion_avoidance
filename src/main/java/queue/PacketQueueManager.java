@@ -15,13 +15,7 @@ public class PacketQueueManager {
 
     private LinkedList<Packet> packetQueue;
 
-    private boolean isQueueLimited;
-
-    private long queueLength;
-
-    private PacketQueueManager(boolean isQueueLimited, long queueLength) {
-        this.isQueueLimited = isQueueLimited;
-        this.queueLength = queueLength;
+    private PacketQueueManager() {
         packetQueue = new LinkedList<>();
     }
 
@@ -29,13 +23,11 @@ public class PacketQueueManager {
      * Singleton design mode
      *
      * return only one instance
-     * @param isQueueLimited
-     * @param queueLength
      * @return
      */
-    public static synchronized PacketQueueManager getInstance(boolean isQueueLimited, long queueLength) {
+    public static synchronized PacketQueueManager getInstance() {
         if (instance == null) {
-            instance = new PacketQueueManager(isQueueLimited, queueLength);
+            instance = new PacketQueueManager();
         }
         return instance;
     }
@@ -48,17 +40,7 @@ public class PacketQueueManager {
      * @return
      */
     public boolean insert(Packet packet) {
-        if (isQueueLimited) {
-            long currQueueSize = size();
-            if (currQueueSize <= queueLength) {
-                packetQueue.offerLast(packet);
-                return true;
-            }
-        } else {
-            packetQueue.offerLast(packet);
-            return true;
-        }
-        return false;
+        return packetQueue.offerLast(packet);
     }
 
     /**

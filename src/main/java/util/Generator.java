@@ -29,4 +29,12 @@ public class Generator {
     public static double generatePacketLength(double lambda, Random random) {
         return -1 / lambda * Math.log(1 - random.nextDouble());
     }
+
+    /**
+     * Generate Random Number Between 0 and 1
+     * @return
+     */
+    public static double generateRandomNumberBetween0and1() {
+        return new Random(2021).nextDouble();
+    }
 }

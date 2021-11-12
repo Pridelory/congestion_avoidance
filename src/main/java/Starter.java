@@ -1,7 +1,12 @@
 import entity.Event;
 import entity.Packet;
+import entity.PacketWrapper;
 import event.EventListManager;
 import queue.PacketQueueManager;
+import strategy.DefaultPacketProcessingStrategy;
+import strategy.DropTailPacketProcessingStrategy;
+import strategy.PacketProcessingStrategy;
+import strategy.REDPacketProcessingStrategy;
 import util.Generator;
 import util.StatisticsUtil;
 
@@ -24,7 +29,7 @@ public class Starter {
 
     public EventListManager futureEventList;
 
-    public PacketQueueManager packetQueue;
+    public PacketQueueManager  packetQueue;
 
     public double interArrivalLambda;
 
@@ -68,8 +73,6 @@ public class Starter {
 
     public long packetsDelayMoreThanGivenValue;
 
-    public boolean isQueueLimited;
-
     public long queueLength = 0;
 
     public long count = 0;
@@ -77,6 +80,17 @@ public class Starter {
     public List<Long> queueSize;
 
     public double delayThreshold;
+
+    /**
+     * 0 unlimited 1 drop tail strategy 2 RED strategy
+     */
+    public int strategyType = 2;
+
+    public PacketProcessingStrategy packetProcessingStrategy;
+
+    public double averageQueueSize;
+
+    public double idleStartTime;
 
 
     public static void main(String[] args) {
@@ -132,7 +146,7 @@ public class Starter {
         System.out.println("size: " + packetQueue.size());
         System.out.println(totalDelayTime);
         System.out.println(totalPackets);
-        System.out.println(Arrays.toString(batchMeanTimeList.toArray()));
+//        System.out.println(Arrays.toString(batchMeanTimeList.toArray()));
         System.out.println("mean packet delay : " + totalDelayTime / batches);
         double[] temp1 = StatisticsUtil.countMeanAndVariance(batchMeanTimeList);
         System.out.println("mean of the delay time: " + temp1[0]);
@@ -141,7 +155,7 @@ public class Starter {
         System.out.println("confidence interval of delay time: [" + delayInterval[0] + ", " + delayInterval[1] + "]");
         System.out.println("Mean Delay: 95% C.I. : " + "-/+ " + (delayInterval[1] - temp1[0]) * 100 + "%");
         System.out.println("-----------------------------------------------------------------------------------");
-        System.out.println(Arrays.toString(batchThroughputList.toArray()));
+//        System.out.println(Arrays.toString(batchThroughputList.toArray()));
         System.out.println("throughput : " + totalBusyTime / batches);
         double[] temp2 = StatisticsUtil.countMeanAndVariance(batchThroughputList);
         System.out.println("mean of the throughput: " + temp2[0]);
@@ -170,17 +184,15 @@ public class Starter {
         random2.setSeed(2021);
         linkRate = 10000000;
         meanPacketLength = 4000;
-        offerLoaded = 0.9;
+        offerLoaded = 1.1;
         clock = 0.0;
         // total run time
-//        totalRunTime = 3760 * 1000;
-        totalRunTime = 1000 * 1000;
+        totalRunTime = 3760 * 1000;
+//        totalRunTime = 1000 * 1000;
         // batch count
-//        batches = 752;
-        batches = 100;
+        batches = 752;
+//        batches = 100;
         queueLength = 30;
-        // if the length of this queue is limited
-        isQueueLimited = false;
         totalDelayTime = 0.0;
         batchDelayTime = 0.0;
         batchPackets = 0;
@@ -189,6 +201,8 @@ public class Starter {
         lastEventTime = 0.0;
         batchBusyTime = 0.0;
         delayThreshold = 2.5;
+        averageQueueSize = 0.0;
+        idleStartTime = 0.0;
         packetsDelayMoreThanGivenValue = 0;
         queueSize = new ArrayList<>();
         batchMeanTimeList = new ArrayList<>();
@@ -202,12 +216,20 @@ public class Starter {
         // future event list
         futureEventList = EventListManager.getInstance();
         // packet queue
-        packetQueue = PacketQueueManager.getInstance(isQueueLimited, queueLength);
+        packetQueue = PacketQueueManager.getInstance();
         // create first arrival event -- start event
         Event arrivalEvent = new Event(clock, 0);
         futureEventList.insertEvent(arrivalEvent);
         // create first statics event
         scheduleStatistics();
+        // initialize the packet processing strategy
+        if (strategyType == 0) {
+            packetProcessingStrategy = new DefaultPacketProcessingStrategy();
+        } else if (strategyType == 1) {
+            packetProcessingStrategy = new DropTailPacketProcessingStrategy();
+        } else if (strategyType == 2) {
+            packetProcessingStrategy = new REDPacketProcessingStrategy();
+        }
     }
 
     /**
@@ -218,14 +240,22 @@ public class Starter {
         double lambda = 1.0 / meanPacketLength;
         double packetLength = Generator.generatePacketLength(lambda, random2);
         Packet packet = new Packet(packetLength, clock);
-        boolean isInsertSuccess = packetQueue.insert(packet);
+//        boolean isInsertSuccess = packetQueue.insert(packet);
+        PacketWrapper packetWrapper = new PacketWrapper();
+        packetWrapper.setPacket(packet);
+        packetWrapper.setClock(clock);
+        packetWrapper.setIdleStartTime(idleStartTime);
+        packetWrapper.setPacketQueueManager(packetQueue);
+        packetWrapper.setΜ(meanServiceRateLambda);
+        packetWrapper.setMaxQueueSize(queueLength);
+        boolean isInsertSuccess = packetProcessingStrategy.packetProcessing(packetWrapper);
         if (!isInsertSuccess) {
             count++;
         }
         totalPackets++;
         batchPackets++;
         // if the server is idle, schedule the departure event
-        if (numberInService == 0) {
+        if (numberInService == 0 && packetQueue.size() != 0) {
             scheduleDeparture();
         } else {
             batchBusyTime += (clock - lastEventTime);
@@ -244,6 +274,7 @@ public class Starter {
     public void processDeparture() {
         // if the length of packetQueue > 0, schedule the next packet departure
         Packet packet = packetQueue.poll();
+        if (packetQueue.size() == 0) idleStartTime = clock;
         double arriveClock = packet.getArriveClock();
         double delay = clock - arriveClock;
         if (delay > delayThreshold) {
